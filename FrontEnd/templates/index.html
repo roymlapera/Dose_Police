@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Dose Police</title>
+    <!-- SB Admin CSS -->
+    <link href="{{ url_for('static', filename='css/sb-admin-2.min.css') }}" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="{{ url_for('static', filename='vendor/fontawesome-free/css/all.min.css') }}" rel="stylesheet" type="text/css">
+    <!-- Enlace al favicon -->
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
+</head>
+<body id="page-top">
+    <div id="wrapper">
+        <!-- Sidebar -->
+        <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+            <a class="sidebar-brand d-flex align-items-center justify-content-center" href="/">
+                <div class="sidebar-brand-icon">
+                    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" width="50" height="50">
+                </div>
+                <div class="sidebar-brand-text mx-3">DOSE POLICE</div>
+            </a>
+
+            <!-- Divider -->
+            <hr class="sidebar-divider my-0">
+
+            <!-- File paths loop -->
+            <!-- {% if file_paths %}
+                {% for path in file_paths %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('results', file_name=os.path.basename(path)) }}">
+                        <i class="fas fa-fw fa-file-alt"></i>
+                        <span>{{ os.path.basename(path) }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            {% endif %} -->
+        </ul>
+        <!-- End of Sidebar -->
+
+        <div id="content-wrapper" class="d-flex flex-column">
+            <div id="content">
+                <div class="container-fluid mt-4">
+                    <h1 class="h3 mb-4 text-gray-800">Cargar informe de DVHs</h1>
+                    <div class="card shadow mb-4">
+                        <div class="card-body">
+                            <form action="/" method="POST" enctype="multipart/form-data">
+                                <div class="form-group">
+                                    <label for="file">Seleccionar archivo de texto</label>
+                                    <input type="file" class="form-control" id="file" name="file">
+                                </div>
+                                <button type="submit" class="btn btn-primary">Cargar</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap core JavaScript-->
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <!-- SB Admin JS -->
+    <script src="{{ url_for('static', filename='js/sb-admin-2.min.js') }}"></script>
+</body>
+</html>
