@@ -1,22 +1,38 @@
-# %%
 from backend import DVH, Prescription, dose_police_in_action, request_needed_volume, actualizar_dvh_con_mapeos
 import xlstools
 import warnings
 from tkinter import filedialog
 import customtkinter as ctk
+import json
+import os
+import sys
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-NAS_directory = "//FS-201-Radioterapia.intecnus.org.ar/"
-constraint_excel_file_path = NAS_directory + "fisicos/8 - Físicos Médicos/Natalia Espector/2024 - Protocolos clínicos/Protocolo de constraints.xlsx"
-dvh_folder_path = NAS_directory + "monaco/FocalData/DVH Output/"
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller 
+    https://stackoverflow.com/questions/31836104/pyinstaller-and-onefile-how-to-include-an-image-in-the-exe-file"""
+
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+        #base_path = sys._MEIPASS2
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+# Define the paths for the NAS directory and the Excel file
+NAS_directory = resource_path("//FS-201-Radioterapia.intecnus.org.ar/")
+constraint_excel_file_path = resource_path(NAS_directory + "fisicos/8 - Físicos Médicos/Natalia Espector/2024 - Protocolos clínicos/Protocolo de constraints.xlsx")
+dvh_folder_path = resource_path(NAS_directory + "monaco/FocalData/DVH Output/")
 
 
-class FileSelectorApp(ctk.CTk):
-    def __init__(self, predefined_folder, options_list):
-        super().__init__()
+class FileSelectorApp(ctk.CTkToplevel):
+    def __init__(self, master, predefined_folder, options_list):
+        super().__init__(master)
 
         self.title("Selector de Archivo y Opción")
         self.geometry("600x300")
@@ -26,11 +42,9 @@ class FileSelectorApp(ctk.CTk):
         self.selected_file = None
         self.selected_string = None
 
-        # Widgets
         self.create_widgets()
 
     def create_widgets(self):
-        # Botón para elegir archivo
         self.file_label = ctk.CTkLabel(self, text="Archivo seleccionado:")
         self.file_label.pack(pady=(10, 0))
 
@@ -40,7 +54,6 @@ class FileSelectorApp(ctk.CTk):
         self.browse_button = ctk.CTkButton(self, text="Elegir archivo", command=self.browse_file)
         self.browse_button.pack(pady=(0, 20))
 
-        # Entrada de búsqueda para lista
         self.search_label = ctk.CTkLabel(self, text="Buscar en la lista:")
         self.search_label.pack(pady=(5, 0))
 
@@ -48,12 +61,10 @@ class FileSelectorApp(ctk.CTk):
         self.search_entry.pack()
         self.search_entry.bind("<KeyRelease>", self.filter_dropdown)
 
-        # Menú desplegable
         self.option_menu = ctk.CTkOptionMenu(self, values=self.filtered_options, command=self.on_select)
         self.option_menu.pack(pady=10)
-        self.option_menu.set("PR+VS+LN 6000-20FX") 
+        self.option_menu.set("PR+VS+LN 6000-20FX")
 
-        # Botón de confirmar
         self.confirm_button = ctk.CTkButton(self, text="Confirmar", command=self.confirm_selection)
         self.confirm_button.pack(pady=10)
 
@@ -81,6 +92,7 @@ class FileSelectorApp(ctk.CTk):
         self.selected_file = self.file_entry.get()
         self.destroy()
 
+
 class EstructurasApp(ctk.CTkToplevel):
     def __init__(self, master, dic_a, dic_b, subset_keys_a):
         super().__init__(master)
@@ -91,8 +103,8 @@ class EstructurasApp(ctk.CTkToplevel):
         self.dic_b = dic_b
         self.subset_keys_a = subset_keys_a
 
-        self.mappings = {}       # clave de dic_a → OptionMenu
-        self.float_inputs = {}   # clave de dic_a (subset) → Entry
+        self.mappings = {}
+        self.float_inputs = {}
 
         self.mapping_result = None
         self.float_result = None
@@ -127,14 +139,13 @@ class EstructurasApp(ctk.CTkToplevel):
             if key_a in self.subset_keys_a:
                 entry.grid(row=i + 1, column=2, padx=10, pady=5, sticky="w")
 
-        # Botón de confirmar
         boton = ctk.CTkButton(self, text="Confirmar", command=self.actualizar)
         boton.pack(pady=(10, 20))
 
     def actualizar(self):
         self.mapping_result = {k: self.mappings[k].get() for k in self.mappings}
-
         self.float_result = {}
+
         for k in self.subset_keys_a:
             val_str = self.float_inputs[k].get().strip()
             if val_str:
@@ -143,38 +154,33 @@ class EstructurasApp(ctk.CTkToplevel):
                 except ValueError:
                     self.float_result[k] = None
 
-        self.quit()
         self.destroy()
 
     @staticmethod
-    def run(dic_a, dic_b, subset_keys_a):
-        ctk.set_appearance_mode("Dark")
-        ctk.set_default_color_theme("green")
-
-        root = ctk.CTk()
-        root.withdraw()
-
-        app = EstructurasApp(root, dic_a, dic_b, subset_keys_a)
-        app.mainloop()
-
+    def run(master, dic_a, dic_b, subset_keys_a):
+        app = EstructurasApp(master, dic_a, dic_b, subset_keys_a)
+        app.grab_set()
+        app.wait_window()
         return app.mapping_result, app.float_result
 
-class ResultsWindow:
-    def __init__(self, presc):
+
+class ResultsWindow(ctk.CTkToplevel):
+    def __init__(self, master, presc):
+        super().__init__(master)
+
         self.new_dvh_requested = False
 
-        self.window = ctk.CTk()
-        self.window.title("Resultado de Constraints")
-        self.window.geometry("800x600")
+        self.title("Resultado de Constraints")
+        self.geometry("800x600")
 
-        textbox = ctk.CTkTextbox(self.window, wrap="word")
+        textbox = ctk.CTkTextbox(self, wrap="word")
         textbox.pack(expand=True, fill="both", padx=20, pady=20)
 
         textbox.tag_config("green", foreground="green")
         textbox.tag_config("yellow", foreground="orange")
         textbox.tag_config("red", foreground="red")
 
-        for p_name in list(presc.structures.keys()):
+        for p_name in presc.structures:
             textbox.insert("end", f'{p_name} constraints:\n', "title")
             for constraint in presc.structures[p_name]:
                 if p_name in ['PTV_BOOST_TOTAL']:
@@ -199,7 +205,7 @@ class ResultsWindow:
 
         textbox.configure(state="disabled")
 
-        button_frame = ctk.CTkFrame(self.window)
+        button_frame = ctk.CTkFrame(self)
         button_frame.pack(pady=10)
 
         close_button = ctk.CTkButton(button_frame, text="Cerrar", command=self.close)
@@ -208,14 +214,35 @@ class ResultsWindow:
         new_button = ctk.CTkButton(button_frame, text="Elegir nuevo DVH...", command=self.choose_new)
         new_button.pack(side="left", padx=10)
 
-        self.window.mainloop()
-
     def close(self):
-        self.window.destroy()
+        self.destroy()
 
     def choose_new(self):
         self.new_dvh_requested = True
-        self.window.destroy()
+        self.destroy()
+
+
+def get_temp_json_path(dvh):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    temp_folder = os.path.join(script_dir, "Temp")
+    os.makedirs(temp_folder, exist_ok=True)
+
+    filename = f"{dvh.plan_name}_{dvh.patient_id}.json"
+    return os.path.join(temp_folder, filename)
+
+def save_mapping_and_volumes(dvh, name_mapping, volume_mapping):
+    path = get_temp_json_path(dvh)
+    data = {"name_mapping": name_mapping, "volume_mapping": volume_mapping}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def load_mapping_and_volumes_if_exists(dvh):
+    path = get_temp_json_path(dvh)
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data["name_mapping"], data["volume_mapping"]
+    return None, None
 
 # ------------------------------------------------------------------------------------------------------ 
 
@@ -223,51 +250,47 @@ def main():
     carpeta_predeterminada = dvh_folder_path
     lista_opciones = xlstools.get_cell_content(file_path=constraint_excel_file_path, cell_coordinate='B2', sheet_name=None)[3:]
 
-    app = FileSelectorApp(carpeta_predeterminada, lista_opciones)
-    app.mainloop()
-    # Resultado final:
-    print(f"Template seleccionado y archivo:  {app.selected_string} - {app.selected_file}")
+    root = ctk.CTk()
+    root.withdraw()  # ocultamos la ventana principal
 
-    # Instancio DVH y Prescription
-    dvh = DVH(app.selected_file)
-    presc = Prescription(constraint_excel_file_path, app.selected_string)
+    while True:
+        selector = FileSelectorApp(root, carpeta_predeterminada, lista_opciones)
+        selector.grab_set()
+        selector.wait_window()
 
-    # ----------------------------------------------------------- 
-    # Actualizar volúmenes de estructuras si se quiere
-    dvh.structures['PTV_PR'].volume_update(87.4)
-    dvh.structures['PTV_VS'].volume_update(70.5)
-    dvh.structures['INTESTINOS'].volume_update(1797.7)
-    dvh.structures['SIGMA'].volume_update(205.2)
-    dvh.structures['CAUDA_EQUINA'].volume_update(46.5) 
-    # -----------------------------------------------------------
+        if not selector.selected_file or not selector.selected_string:
+            break  # el usuario cerró la ventana
 
-    volumen_requested_list = request_needed_volume(dvh, presc)
-    mapping, valores = EstructurasApp.run(presc.structures, dvh.structures, volumen_requested_list)
+        dvh = DVH(selector.selected_file)
+        presc = Prescription(constraint_excel_file_path, selector.selected_string)
 
-    actualizar_dvh_con_mapeos(dvh, mapping, valores)   
+        # ----------------------------------------------------------- 
+        # Actualizar volúmenes de estructuras si se quiere
+        # dvh.structures['PTV_PR'].volume_update(87.4)
+        # dvh.structures['PTV_VS'].volume_update(70.5)
+        # dvh.structures['INTESTINOS'].volume_update(1797.7)
+        # dvh.structures['SIGMA'].volume_update(205.2)
+        # dvh.structures['CAUDA_EQUINA'].volume_update(46.5) 
+        # -----------------------------------------------------------
 
-    # Ejecutar la lógica principal de Dose Police
-    dose_police_in_action([dvh], presc)
+        name_mapping, volume_mapping = load_mapping_and_volumes_if_exists(dvh)
 
-    # Mostrar resultados en una ventana emergente
-    ventana = ResultsWindow(presc)
-    NUEVO_DVH = ventana.new_dvh_requested
+        if name_mapping is None or volume_mapping is None:
+            volumen_requested_list = request_needed_volume(dvh, presc)
+            name_mapping, volume_mapping = EstructurasApp.run(root, presc.structures, dvh.structures, volumen_requested_list)
+            save_mapping_and_volumes(dvh, name_mapping, volume_mapping)
 
-    print(NUEVO_DVH)
-
-    while NUEVO_DVH:
-        app = FileSelectorApp(carpeta_predeterminada, lista_opciones)
-        app.mainloop()
-
-        print(f"Template seleccionado y archivo:  {app.selected_string} - {app.selected_file}")
-
-        dvh = DVH(app.selected_file)
-        presc = Prescription(constraint_excel_file_path, app.selected_string)
+        actualizar_dvh_con_mapeos(dvh, name_mapping, volume_mapping)
 
         dose_police_in_action([dvh], presc)
 
-        ventana = ResultsWindow(presc)
-        NUEVO_DVH = ventana.new_dvh_requested
+        ventana_resultado = ResultsWindow(root, presc)
+        ventana_resultado.grab_set()
+        ventana_resultado.wait_window()
+
+        if not ventana_resultado.new_dvh_requested:
+            break  # cerró sin elegir nuevo DVH → fin del ciclo
+
 
 if __name__ == "__main__":
     main()
