@@ -34,3 +34,9 @@ jobs:
         with:
           name: DosePolice-exe
           path: dist/DosePolice.exe
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/DosePolice.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
