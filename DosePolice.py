@@ -239,20 +239,28 @@ class ResultsWindow(ctk.CTkToplevel):
         c = canvas.Canvas(file_path, pagesize=letter)
         width, height = letter
 
-        # encabezado
+        # --- LOGO INTECNUS ---
+        try:
+            logo_path = resource_path("logo_intecnus.png")
+            c.drawImage(logo_path, 40, height - 100, width=120, preserveAspectRatio=True, mask='auto')
+        except Exception as e:
+            print("No se pudo cargar el logo:", e)
+
+        # --- ENCABEZADO ---
         y = height - 50
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(40, y, "Resultados de Constraints")
+        c.drawString(180, y, "Resultados de Constraints")  # desplazado para no tapar logo
         y -= 25
         c.setFont("Helvetica", 12)
-        c.drawString(40, y, f"Plan: {self.dvh.plan_name}")
+        c.drawString(180, y, f"Plan: {self.dvh.plan_name}")
         y -= 20
-        c.drawString(40, y, f"Paciente ID: {self.dvh.patient_id}")
+        c.drawString(180, y, f"Paciente ID: {self.dvh.patient_id}")
         y -= 20
         fecha = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        c.drawString(40, y, f"Fecha de generación: {fecha}")
+        c.drawString(180, y, f"Fecha de generación: {fecha}")
         y -= 40
 
+        # --- CUERPO CON COLORES ---
         c.setFont("Helvetica", 10)
         for i, line in enumerate(lines):
             start_idx = f"{i+1}.0"
@@ -275,6 +283,7 @@ class ResultsWindow(ctk.CTkToplevel):
                 c.setFont("Helvetica", 10)
 
         c.save()
+
 
 
 def get_temp_json_path(dvh):
