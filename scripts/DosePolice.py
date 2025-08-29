@@ -1,28 +1,27 @@
 from backend import DVH, Prescription, dose_police_in_action, request_needed_volume, actualizar_dvh_con_mapeos
 import xlstools
 import warnings
+from tkinter import filedialog
 import customtkinter as ctk
 import json
 import os
 import sys
-
-# extra imports para PDF
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib import colors
-from customtkinter import filedialog as ctkfiledialog
-from datetime import datetime
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ Get absolute path to resource, works for dev and for PyInstaller 
+    https://stackoverflow.com/questions/31836104/pyinstaller-and-onefile-how-to-include-an-image-in-the-exe-file"""
+
     try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
+        #base_path = sys._MEIPASS2
     except Exception:
         base_path = os.path.abspath(".")
+
     return os.path.join(base_path, relative_path)
 
 # Define the paths for the NAS directory and the Excel file
@@ -70,7 +69,7 @@ class FileSelectorApp(ctk.CTkToplevel):
         self.confirm_button.pack(pady=10)
 
     def browse_file(self):
-        file_path = ctkfiledialog.askopenfilename(initialdir=self.predefined_folder)
+        file_path = filedialog.askopenfilename(initialdir=self.predefined_folder)
         if file_path:
             self.selected_file = file_path
             self.file_entry.delete(0, ctk.END)
@@ -121,6 +120,7 @@ class EstructurasApp(ctk.CTkToplevel):
 
         ctk.CTkLabel(frame, text="Prescripción").grid(row=0, column=0, padx=10, pady=5)
         ctk.CTkLabel(frame, text="DVH").grid(row=0, column=1, padx=10, pady=5)
+        ctk.CTkLabel(frame, text="Volumen (cc)").grid(row=0, column=2, padx=10, pady=5)
 
         for i, key_a in enumerate(self.dic_a.keys()):
             ctk.CTkLabel(frame, text=key_a).grid(row=i + 1, column=0, padx=10, pady=5, sticky="w")
@@ -135,6 +135,9 @@ class EstructurasApp(ctk.CTkToplevel):
 
             entry = ctk.CTkEntry(frame, width=100, placeholder_text="Valor")
             self.float_inputs[key_a] = entry
+
+            if key_a in self.subset_keys_a:
+                entry.grid(row=i + 1, column=2, padx=10, pady=5, sticky="w")
 
         boton = ctk.CTkButton(self, text="Confirmar", command=self.actualizar)
         boton.pack(pady=(10, 20))
@@ -162,46 +165,45 @@ class EstructurasApp(ctk.CTkToplevel):
 
 
 class ResultsWindow(ctk.CTkToplevel):
-    def __init__(self, master, presc, dvh):
+    def __init__(self, master, presc):
         super().__init__(master)
 
         self.new_dvh_requested = False
-        self.dvh = dvh
 
         self.title("Resultado de Constraints")
         self.geometry("800x600")
 
-        self.textbox = ctk.CTkTextbox(self, wrap="word")
-        self.textbox.pack(expand=True, fill="both", padx=20, pady=20)
+        textbox = ctk.CTkTextbox(self, wrap="word")
+        textbox.pack(expand=True, fill="both", padx=20, pady=20)
 
-        self.textbox.tag_config("green", foreground="green")
-        self.textbox.tag_config("yellow", foreground="orange")
-        self.textbox.tag_config("red", foreground="red")
+        textbox.tag_config("green", foreground="green")
+        textbox.tag_config("yellow", foreground="orange")
+        textbox.tag_config("red", foreground="red")
 
         for p_name in presc.structures:
-            self.textbox.insert("end", f'{p_name} constraints:\n', ("title",))
+            textbox.insert("end", f'{p_name} constraints:\n', "title")
             for constraint in presc.structures[p_name]:
                 if p_name in ['PTV_BOOST_TOTAL']:
                     continue
                 if not constraint.ACCEPTABLE_LV_AVAILABLE:
                     if constraint.VERIFIED_IDEAL[0]:
                         mensaje = f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
-                        self.textbox.insert("end", mensaje, ("green",))
+                        textbox.insert("end", mensaje, "green")
                     else:
                         mensaje = f"    NO PASA: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
-                        self.textbox.insert("end", mensaje, ("red",))
+                        textbox.insert("end", mensaje, "red")
                 else:
                     if constraint.VERIFIED_IDEAL[0]:
                         mensaje = f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
-                        self.textbox.insert("end", mensaje, ("green",))
+                        textbox.insert("end", mensaje, "green")
                     elif constraint.VERIFIED_ACCEPTABLE[0]:
                         mensaje = f"    PASA ACEPTABLE: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n"
-                        self.textbox.insert("end", mensaje, ("yellow",))
+                        textbox.insert("end", mensaje, "yellow")
                     else:
                         mensaje = f"    NO PASA: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n"
-                        self.textbox.insert("end", mensaje, ("red",))
+                        textbox.insert("end", mensaje, "red")
 
-        self.textbox.configure(state="disabled")
+        textbox.configure(state="disabled")
 
         button_frame = ctk.CTkFrame(self)
         button_frame.pack(pady=10)
@@ -212,69 +214,12 @@ class ResultsWindow(ctk.CTkToplevel):
         new_button = ctk.CTkButton(button_frame, text="Elegir nuevo DVH...", command=self.choose_new)
         new_button.pack(side="left", padx=10)
 
-        save_pdf_button = ctk.CTkButton(button_frame, text="Guardar PDF", command=self.save_as_pdf)
-        save_pdf_button.pack(side="left", padx=10)
-
     def close(self):
         self.destroy()
 
     def choose_new(self):
         self.new_dvh_requested = True
         self.destroy()
-
-    def save_as_pdf(self):
-        default_name = f"Resultados_{self.dvh.plan_name}_{self.dvh.patient_id}.pdf"
-        file_path = ctkfiledialog.asksaveasfilename(
-            initialfile=default_name,
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-            title="Guardar resultados como PDF"
-        )
-        if not file_path:
-            return
-
-        content = self.textbox.get("1.0", "end-1c")
-        lines = content.split("\n")
-
-        c = canvas.Canvas(file_path, pagesize=letter)
-        width, height = letter
-
-        # encabezado
-        y = height - 50
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(40, y, "Resultados de Constraints")
-        y -= 25
-        c.setFont("Helvetica", 12)
-        c.drawString(40, y, f"Plan: {self.dvh.plan_name}")
-        y -= 20
-        c.drawString(40, y, f"Paciente ID: {self.dvh.patient_id}")
-        y -= 20
-        fecha = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        c.drawString(40, y, f"Fecha de generación: {fecha}")
-        y -= 40
-
-        c.setFont("Helvetica", 10)
-        for i, line in enumerate(lines):
-            start_idx = f"{i+1}.0"
-            tags = self.textbox.tag_names(start_idx)
-
-            color = colors.black
-            if "green" in tags:
-                color = colors.green
-            elif "yellow" in tags:
-                color = colors.orange
-            elif "red" in tags:
-                color = colors.red
-
-            c.setFillColor(color)
-            c.drawString(40, y, line)
-            y -= 14
-            if y < 40:
-                c.showPage()
-                y = height - 50
-                c.setFont("Helvetica", 10)
-
-        c.save()
 
 
 def get_temp_json_path(dvh):
@@ -306,7 +251,7 @@ def main():
     lista_opciones = xlstools.get_cell_content(file_path=constraint_excel_file_path, cell_coordinate='B2', sheet_name=None)[3:]
 
     root = ctk.CTk()
-    root.withdraw()
+    root.withdraw()  # ocultamos la ventana principal
 
     while True:
         selector = FileSelectorApp(root, carpeta_predeterminada, lista_opciones)
@@ -314,10 +259,19 @@ def main():
         selector.wait_window()
 
         if not selector.selected_file or not selector.selected_string:
-            break
+            break  # el usuario cerró la ventana
 
         dvh = DVH(selector.selected_file)
         presc = Prescription(constraint_excel_file_path, selector.selected_string)
+
+        # ----------------------------------------------------------- 
+        # Actualizar volúmenes de estructuras si se quiere
+        # dvh.structures['PTV_PR'].volume_update(87.4)
+        # dvh.structures['PTV_VS'].volume_update(70.5)
+        # dvh.structures['INTESTINOS'].volume_update(1797.7)
+        # dvh.structures['SIGMA'].volume_update(205.2)
+        # dvh.structures['CAUDA_EQUINA'].volume_update(46.5) 
+        # -----------------------------------------------------------
 
         name_mapping, volume_mapping = load_mapping_and_volumes_if_exists(dvh)
 
@@ -330,13 +284,15 @@ def main():
 
         dose_police_in_action([dvh], presc)
 
-        ventana_resultado = ResultsWindow(root, presc, dvh)
+        ventana_resultado = ResultsWindow(root, presc)
         ventana_resultado.grab_set()
         ventana_resultado.wait_window()
 
         if not ventana_resultado.new_dvh_requested:
-            break
+            break  # cerró sin elegir nuevo DVH → fin del ciclo
 
 
 if __name__ == "__main__":
     main()
+
+

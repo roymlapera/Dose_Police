@@ -1,0 +1,16 @@
+{
+    "name_mapping": {
+        "PTV_PR": "PTV",
+        "PTV_VS": "CRISTALINO_D",
+        "PTV_LN": "CRISTALINO_D",
+        "RECTO": "CRISTALINO_D",
+        "VEJIGA": "CRISTALINO_D",
+        "BULBO_PENEANO": "CRISTALINO_D",
+        "FEMUR_I": "CRISTALINO_D",
+        "FEMUR_D": "CRISTALINO_D",
+        "CAUDA_EQUINA": "CRISTALINO_D",
+        "INTESTINOS": "CRISTALINO_D",
+        "SIGMA": "CRISTALINO_D"
+    },
+    "volume_mapping": {}
+}

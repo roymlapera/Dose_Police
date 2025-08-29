@@ -32,20 +32,20 @@ def lista_contenida(lista_pequena, lista_grande):
 
 
 class Structure:
-    def __init__(self, label, dose_axis, cumulated_volume_axis):
+    def __init__(self, label, dose_axis, cumulated_percent_volume_axis):
         self.label = 'Paciente' if label == 'Paciente(Unsp.Tiss.)' else label
+        self.volume = None
         self.dose_axis = dose_axis
-        self.cumulated_volume_axis = cumulated_volume_axis # in cm3
-        self.volume = cumulated_volume_axis[0]  # in cm3
-        self.differential_volume_axis = -np.diff(self.cumulated_volume_axis, 
+        self.cumulated_percent_volume_axis = cumulated_percent_volume_axis
+        self.differential_percent_volume_axis = -np.diff(self.cumulated_percent_volume_axis, 
                                               axis=0, 
-                                              prepend=self.cumulated_volume_axis[0])
+                                              prepend=self.cumulated_percent_volume_axis[0])
         self.mean = self._mean_calculation()
         self.constraints = []
 
     def _mean_calculation(self):
-        sum_dummy = (self.cumulated_volume_axis*self.dose_axis).sum()
-        sum_dummy /= self.cumulated_volume_axis.sum()
+        sum_dummy = (self.differential_percent_volume_axis*self.dose_axis).sum()
+        sum_dummy /= self.differential_percent_volume_axis.sum()
         sum_dummy -= 1
         return sum_dummy
 
@@ -56,20 +56,21 @@ class Structure:
         self.label = name
 
 
-    def volume_function(self, dose):   # Entrada de dosis en cGy, devuelve volumen en cm3
-        y_min = self.cumulated_volume_axis[0]
-        y_max = self.cumulated_volume_axis[-1]
-        dvh = interp1d(self.dose_axis, self.cumulated_volume_axis, kind='linear', bounds_error=False, fill_value=(y_min, y_max))
+    def volume_function(self, dose):   # Entrada de dosis en cGy, devuelve en porcentaje de volumen
+        y_min = self.cumulated_percent_volume_axis[0]
+        y_max = self.cumulated_percent_volume_axis[-1]
+        dvh = interp1d(self.dose_axis, self.cumulated_percent_volume_axis, kind='linear', bounds_error=False, fill_value=(y_min, y_max))
         return round(dvh(dose).item(), 1)
     
-    def dose_function(self, volume):   # Entrada de volumen en cm3, devuelve dosis en cGy
+    def dose_function(self, volume):   # Entrada de volumen en porcentaje, devuelve dosis en cGy
         y_min = self.dose_axis[0]
         y_max = self.dose_axis[-1]
-        vdh = interp1d(self.cumulated_volume_axis, self.dose_axis, kind='linear', bounds_error=False, fill_value=(y_min, y_max))
+        vdh = interp1d(self.cumulated_percent_volume_axis, self.dose_axis, kind='linear', bounds_error=False, fill_value=(y_min, y_max))
         return round(vdh(volume).item(), 1)
 
 class DVH:
     def __init__(self, file_path):
+        # self.file_path = self._file_finder('Seleccione el archivo DVH.')
         self.file_path = file_path
         self.patient_id, self.plan_name, self.date_and_time, self.structures = self._DVH_data_parser()
 
@@ -106,12 +107,9 @@ class DVH:
                     for key in data_dict:
                         # convierto a numpy.array para poder transponer
                         dummy = np.array(data_dict[key]).T
-                        if key.lower() in ['camilla', 'espuma', 'isoctsim', 'isoautocontour', 'encastre', 'body', 'external']:     # Estructuras que no nos interesa evaluar
+                        if key in ['Camilla', 'Espuma', 'isoctsim']:     # Estructuras que no nos interesa evaluar
                             continue
-                        elif key.lower()=='paciente(unsp.tiss.)':  
-                            structures_dict['PACIENTE']= Structure(key.upper(),dummy[0],dummy[1])
-                        else:
-                            structures_dict[key.upper()]= Structure(key.upper(),dummy[0],dummy[1])
+                        structures_dict[key.upper()]= Structure(key.upper(),dummy[0],dummy[1])
                            
                     return patient_id, plan_name, date_and_time, structures_dict
                 
@@ -132,18 +130,18 @@ class DVH:
             # print(f'{structure.label}:\t{structure.mean:.1f} cGy')
             if DIFFERENTIAL_DVH:
                 plt.plot(structure.dose_axis, 
-                         structure.differential_volume_axis, 
+                         structure.differential_percent_volume_axis, 
                          label=structure.label)
                 plt.title('Differential dose-volume histogram')
                 plt.ylim([0,1.5])
             else:
                 plt.plot(structure.dose_axis, 
-                         structure.cumulated_volume_axis, 
+                         structure.cumulated_percent_volume_axis, 
                          label=structure.label)
                 plt.title('Cumulated dose-volume histogram')
      
         plt.xlabel('Dosis[cGy]')
-        plt.ylabel('Volume[cm3]')
+        plt.ylabel('Volume[%]')
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid()
         plt.show()
@@ -166,7 +164,7 @@ class Constraint:
             ref_dose = float(ref1)
             ref_vol  = float(ref2)
             result = structure.volume_function(ref_dose)
-            result = result / structure.volume * 100.0 if not abs_volume else result
+            result = result * structure.volume/100.0 if abs_volume else result
 
             # print(f'dvh percent: {result}')
 
@@ -181,8 +179,8 @@ class Constraint:
         elif self.type in constraint_types[4:6]:
             abs_volume = self.type == constraint_types[5]
 
-            ref_vol   = float(ref1)  
-            ref_vol   = float( ref_vol/100.0 * structure.volume if not abs_volume else ref_vol ) 
+            ref_vol   = float(ref1)  #cc
+            ref_vol   = float( ref_vol*100.0/structure.volume if abs_volume else ref_vol ) #%
             ref_dose = float(ref2)
             result = structure.dose_function(ref_vol)
             # print(f'vdh percent: {result}')
@@ -197,7 +195,7 @@ class Constraint:
             dmed       = self.type == constraint_types[7]
 
             if dmax:
-                ref_vol = MAX_DOSE_ABS_VOLUME  #cm3
+                ref_vol   = float( MAX_DOSE_ABS_VOLUME * 100.0/structure.volume)  #%
             ref_dose  = float(ref1)
             result = structure.mean if dmed else structure.dose_function(ref_vol)
             # print(f'med o max: {result}')
@@ -250,7 +248,7 @@ class Prescription:
 
             
     def _prescription_importer(self):
-        # workbook = openpyxl.load_workbook(self.constraint_excel_filepath)
+        workbook = openpyxl.load_workbook(self.constraint_excel_filepath)
         # for name in workbook.sheetnames:
         #     print(name)
         excel_data = xlstools.cell_data_importer(open_workbook(self.constraint_excel_filepath, self.presc_template_name),
@@ -286,35 +284,32 @@ class Prescription:
                 dummy.append([structure_name, constraint.type, constraint.ideal_dose, constraint.ideal_volume, constraint.acceptable_dose, constraint.acceptable_volume, check])
         print(pd.DataFrame(dummy).to_string(header=False, index=False))
 
-def actualizar_dvh_con_mapeos(dvh: DVH, mapping: dict, volumes: dict) -> None:
+def actualizar_dvh_con_mapeos(dvh: DVH, mapeo: dict, volumenes: dict) -> None:
     """
     Aplica los mapeos de nombres y actualiza los volúmenes dentro de dvh.structures.
 
     Parameters:
         dvh (DVH): Objeto DVH a modificar.
-        mapping (dict): Diccionario {nombre_antiguo_en_dvh: new_name}.
-        volumes (dict): Diccionario {nombre_actual_en_dvh: volumen_cc}.
+        mapeo (dict): Diccionario {nombre_antiguo_en_dvh: nombre_nuevo}.
+        volumenes (dict): Diccionario {nombre_actual_en_dvh: volumen_cc}.
     """
-    new_structures = {}
+    nuevas_structures = {}
 
-    for dvh_str_name, structure in dvh.structures.items():
+    for dvh_str_name, estructura in dvh.structures.items():
         # Actualizar volumen si corresponde
-        if dvh_str_name in volumes:
-            structure.volume_update(volumes[dvh_str_name])
+        if dvh_str_name in volumenes:
+            estructura.volume_update(volumenes[dvh_str_name])
 
-        if dvh_str_name in mapping:
-            new_name = mapping[dvh_str_name]
+        # Actualizar nombre si corresponde
+        nuevo_nombre = mapeo.get(dvh_str_name, dvh_str_name)
+        if nuevo_nombre != "-":
+            estructura.label_update(nuevo_nombre)
+            nuevas_structures[nuevo_nombre] = estructura
         else:
-            new_name = dvh_str_name  # Mantener original
+            nuevas_structures[dvh_str_name] = estructura
 
-        if new_name == "-":
-            new_structures[dvh_str_name] = structure
-        else:
-            structure.label_update(new_name)
-            new_structures[new_name] = structure
-            
     # Reemplazar estructuras del dvh
-    dvh.structures = new_structures
+    dvh.structures = nuevas_structures
 
 def match_strings_and_volume_entry(dvh_list_dummy, presc):
     def request_needed_volume(dvh_list_dummy, presc):
@@ -343,8 +338,8 @@ def match_strings_and_volume_entry(dvh_list_dummy, presc):
 
     def launch_gui(presc_names, dvh_names, needs_volume):
         root = tk.Tk()
-        root.title("Emparejar estructuras")
-        tk.Label(root, text="Empareje estructuras del protocolo con el DVH.")\
+        root.title("Emparejar estructuras y asignar volúmenes")
+        tk.Label(root, text="Empareje estructuras del protocolo con el DVH. Ingrese volumen si corresponde.")\
             .grid(row=0, columnspan=3, pady=10)
 
         dropdown_vars = {}
@@ -466,8 +461,7 @@ def dose_police_in_action(dvh_list_dummy: List, presc: Prescription):
     for p_name in list(presc.structures.keys()):
         # print(f'{p_name} constraints:')
         for constraint in presc.structures[p_name]:
-            if p_name in ['PTV_BOOST_TOTAL']: 
-                continue  # PTV_BOOST_TOTAL no tiene constraints
+            if p_name in ['PTV_BOOST_TOTAL']: continue  # PTV_BOOST_TOTAL no tiene constraints
             constraint.verify(dvh_list_dummy[0].structures[p_name])
 
             # if not constraint.ACCEPTABLE_LV_AVAILABLE:
