@@ -1,42 +1,38 @@
-name: Build DosePolice Executable
+name: Build DosePolice EXE
 
 on:
-  workflow_dispatch:   # Lanzar manualmente
   push:
-    tags:
-      - "v*"
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
-
+    strategy:
+      matrix:
+        os: [windows-2022]
+        python-version: ['3.11']
+    
+    runs-on: ${{ matrix.os }}
+    
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if exist requirements.txt (pip install -r requirements.txt)
-          pip install pyinstaller reportlab customtkinter openpyxl
-
-      - name: Build exe with PyInstaller
-        run: |
-          pyinstaller --onefile DosePolice.py --icon=logo.ico
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: DosePolice-exe
-          path: dist/DosePolice.exe
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/DosePolice.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
+      
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller reportlab customtkinter openpyxl
+        
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --icon=logo.ico --add-data "images;images" DosePolice.py --name DosePolice
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: DosePolice_${{ matrix.os }}_Python${{ matrix.python-version }}
+        path: dist/DosePolice.exe
