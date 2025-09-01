@@ -335,7 +335,9 @@ def main():
             name_mapping, volume_mapping = EstructurasApp.run(root, presc.structures, dvh.structures, volumen_requested_list)
             save_mapping_and_volumes(dvh, name_mapping, volume_mapping)
 
-        actualizar_dvh_con_mapeos(dvh, name_mapping, volume_mapping)
+        # Invertir mapping: {nombre_dvh: nombre_presc}
+        mapping_invertido = {v: k for k, v in name_mapping.items() if v and v != "-"}
+        actualizar_dvh_con_mapeos(dvh, mapping_invertido, volume_mapping)
 
         dose_police_in_action([dvh], presc)
 
@@ -349,3 +351,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
