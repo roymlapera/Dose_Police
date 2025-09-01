@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller reportlab customtkinter openpyxl numpy pandas
+        pip install pyinstaller reportlab customtkinter openpyxl numpy pandas scipy matplotlib
         
     - name: Build with PyInstaller
       run: |
