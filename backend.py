@@ -8,7 +8,6 @@ from xlstools import open_workbook
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import openpyxl
 from termcolor import colored
 from scipy.interpolate import interp1d
 
@@ -37,17 +36,15 @@ class Structure:
         self.dose_axis = dose_axis
         self.cumulated_volume_axis = cumulated_volume_axis # in cm3
         self.volume = cumulated_volume_axis[0]  # in cm3
-        self.differential_volume_axis = -np.diff(self.cumulated_volume_axis, 
-                                              axis=0, 
-                                              prepend=self.cumulated_volume_axis[0])
+        self.differential_volume_axis = np.append(self.cumulated_volume_axis[:-1] - self.cumulated_volume_axis[1:], 0.0)
         self.mean = self._mean_calculation()
         self.constraints = []
-
+    
     def _mean_calculation(self):
-        sum_dummy = (self.cumulated_volume_axis*self.dose_axis).sum()
-        sum_dummy /= self.cumulated_volume_axis.sum()
-        sum_dummy -= 1
-        return sum_dummy
+        if self.volume <= 0:
+            return np.nan
+        mean_dose = np.sum(self.dose_axis * self.differential_volume_axis) / self.volume
+        return mean_dose
 
     def volume_update(self, volume: float) -> None:
         self.volume = volume
@@ -288,32 +285,43 @@ class Prescription:
 
 def actualizar_dvh_con_mapeos(dvh: DVH, mapping: dict, volumes: dict) -> None:
     """
-    Aplica los mapeos de nombres y actualiza los volúmenes dentro de dvh.structures.
+    Renombra estructuras y actualiza volúmenes dentro de dvh.structures.
 
-    Parameters:
-        dvh (DVH): Objeto DVH a modificar.
-        mapping (dict): Diccionario {nombre_antiguo_en_dvh: new_name}.
-        volumes (dict): Diccionario {nombre_actual_en_dvh: volumen_cc}.
+    mapping: {nombre_actual_en_dvh: nombre_nuevo} 
+             (se ignora si el valor es "-" o vacío)
     """
+    # Normalización de claves para que mapping coincidan con los nombres
+    # que DVH usa (en tu parseo están en MAYÚSCULAS).
+    norm = lambda s: s.strip().upper()
+    mapping_norm = {norm(k): (v if v in (None, "", "-") else norm(v)) for k, v in mapping.items()}
+
     new_structures = {}
 
-    for dvh_str_name, structure in dvh.structures.items():
-        # Actualizar volumen si corresponde
-        if dvh_str_name in volumes:
-            structure.volume_update(volumes[dvh_str_name])
+    for old_key, structure in dvh.structures.items():
+        ok = norm(old_key)
 
-        if dvh_str_name in mapping:
-            new_name = mapping[dvh_str_name]
+        # Nombre destino según mapping (o el mismo si no hay mapeo)
+        proposed_new = mapping_norm.get(ok, ok)
+        if not proposed_new or proposed_new == "-":
+            new_key = ok
         else:
-            new_name = dvh_str_name  # Mantener original
+            new_key = proposed_new
 
-        if new_name == "-":
-            new_structures[dvh_str_name] = structure
-        else:
-            structure.label_update(new_name)
-            new_structures[new_name] = structure
-            
-    # Reemplazar estructuras del dvh
+        # Actualizar label mostrado en la clase Structure
+        structure.label_update(new_key)
+
+        # Evitar colisiones si dos claves distintas mapean al mismo nombre
+        final_key = new_key
+        if final_key in new_structures:
+            # crea un sufijo estable y visible
+            suffix = 2
+            while f"{new_key}__{suffix}" in new_structures:
+                suffix += 1
+            final_key = f"{new_key}__{suffix}"
+
+        new_structures[final_key] = structure
+
+    # Reemplazar el diccionario completo (cambia las keys efectivamente)
     dvh.structures = new_structures
 
 def match_strings_and_volume_entry(dvh_list_dummy, presc):
@@ -344,11 +352,13 @@ def match_strings_and_volume_entry(dvh_list_dummy, presc):
     def launch_gui(presc_names, dvh_names, needs_volume):
         root = tk.Tk()
         root.title("Emparejar estructuras")
+
         tk.Label(root, text="Empareje estructuras del protocolo con el DVH.")\
-            .grid(row=0, columnspan=3, pady=10)
+            .grid(row=0, columnspan=4, pady=10)
 
         dropdown_vars = {}
         volume_entries = {}
+        checkbox_vars = {}
 
         row = 1
         for presc_name in presc_names:
@@ -358,31 +368,41 @@ def match_strings_and_volume_entry(dvh_list_dummy, presc):
             if not name_needs_match and not name_needs_volume:
                 continue
 
-            tk.Label(root, text=presc_name).grid(row=row, column=0)
+            tk.Label(root, text=presc_name).grid(row=row, column=0, padx=5, pady=3, sticky="w")
 
-            # Dropdown para renombrar (activado solo si es necesario)
+            # Dropdown para emparejar con nombre DVH
             var = tk.StringVar(value=presc_name)
             dropdown = ttk.Combobox(root, textvariable=var, values=dvh_names, state="readonly")
-            dropdown.grid(row=row, column=1)
+            dropdown.grid(row=row, column=1, padx=5)
             if not name_needs_match:
                 dropdown.configure(state="disabled")
             dropdown_vars[presc_name] = var
 
             # Entry de volumen si es necesario
             if name_needs_volume:
-                entry = tk.Entry(root)
-                entry.grid(row=row, column=2)
+                entry = tk.Entry(root, width=10)
+                entry.grid(row=row, column=2, padx=5)
                 volume_entries[presc_name] = entry
 
+            # ✅ Checkbox a la derecha
+            chk_var = tk.BooleanVar(value=False)
+            chk = tk.Checkbutton(root, variable=chk_var)
+            chk.grid(row=row, column=3, padx=5)
+            checkbox_vars[presc_name] = chk_var
+
             row += 1
+
+        replacement_dict = {}
+        volume_dict = {}
+        checked_dict = {}
 
         def on_submit():
             for presc_name in dropdown_vars:
                 selected_dvh_key = dropdown_vars[presc_name].get()
-                if not selected_dvh_key:
+                if selected_dvh_key:
+                    replacement_dict[presc_name] = selected_dvh_key
+                else:
                     print(f"⚠️ No se asignó estructura para: {presc_name}")
-                    continue
-                replacement_dict[presc_name] = selected_dvh_key
 
                 if presc_name in volume_entries:
                     try:
@@ -390,11 +410,15 @@ def match_strings_and_volume_entry(dvh_list_dummy, presc):
                         volume_dict[presc_name] = vol
                     except ValueError:
                         print(f"⚠️ Entrada inválida de volumen para {presc_name}")
+
+                checked_dict[presc_name] = checkbox_vars[presc_name].get()
+
             root.destroy()
 
-        tk.Button(root, text="OK", command=on_submit).grid(row=row + 1, columnspan=3, pady=10)
+        tk.Button(root, text="OK", command=on_submit).grid(row=row + 1, columnspan=4, pady=10)
         root.mainloop()
-        return replacement_dict, volume_dict
+
+        return replacement_dict, volume_dict, checked_dict
 
     def apply_corrections(dvh, replacement_dict, volume_dict):
         new_structures = {}
@@ -407,35 +431,36 @@ def match_strings_and_volume_entry(dvh_list_dummy, presc):
                 new_structures[new_key].volume = volume_dict[new_key]
         dvh.structures = new_structures
 
-    # --- Lógica principal ---
-    presc_names = list(presc.structures.keys())
-    dvh_names = list(dvh_list_dummy[0].structures.keys())
-    needs_volume = request_needed_volume(dvh_list_dummy, presc)
+        # # --- Lógica principal ---
+        # presc_names = list(presc.structures.keys())
+        # dvh_names = list(dvh_list_dummy[0].structures.keys())
+        # needs_volume = request_needed_volume(dvh_list_dummy, presc)
 
-    replacement_dict = {}
-    volume_dict = {}
+        # replacement_dict = {}
+        # volume_dict = {}
+        # checked_dict = {}
 
-    any_name_mismatch = any(name not in dvh_names for name in presc_names)
-    any_volume_needed = len(needs_volume) > 0
+        # any_name_mismatch = any(name not in dvh_names for name in presc_names)
+        # any_volume_needed = len(needs_volume) > 0
 
-    if any_name_mismatch or any_volume_needed:
-        replacement_dict, volume_dict = launch_gui(presc_names, dvh_names, needs_volume)
+        # if any_name_mismatch or any_volume_needed:
+        #     replacement_dict, volume_dict, checked_dict = launch_gui(presc_names, dvh_names, needs_volume)
 
-    for dvh in dvh_list_dummy:
+        # for dvh in dvh_list_dummy:
+        #     apply_corrections(dvh, replacement_dict, volume_dict)
+
+        # --- FLUJO PRINCIPAL ---
+        dvh = dvh_list_dummy[0]
+        dvh_names = list(dvh.structures.keys())
+        presc_names = list(presc.structures.keys())
+
+        replacement_dict = {}
+        volume_dict = {}
+        checked_structures_dict = {}
+
+        needs_volume = request_needed_volume(dvh_list_dummy, presc)
+        replacement_dict, volume_dict, checked_structures_dict = launch_gui(presc_names, dvh_names, needs_volume)
         apply_corrections(dvh, replacement_dict, volume_dict)
-
-
-    # --- FLUJO PRINCIPAL ---
-    dvh = dvh_list_dummy[0]
-    dvh_names = list(dvh.structures.keys())
-    presc_names = list(presc.structures.keys())
-
-    replacement_dict = {}
-    volume_dict = {}
-
-    needs_volume = request_needed_volume(dvh_list_dummy, presc)
-    launch_gui(presc_names, dvh_names, needs_volume)
-    apply_corrections(dvh, replacement_dict, volume_dict)
 
 def request_needed_volume(dvh, presc):
         need_volume_types = ['V(D)>V_cc', 'V(D)<V_cc', 'D(V_cc)<D', 'Dmax']
@@ -461,24 +486,13 @@ def request_needed_volume(dvh, presc):
 
         return list(set(filtered))
 
-def dose_police_in_action(dvh_list_dummy: List, presc: Prescription):
+def dose_police_in_action(dvh_list_dummy: List, presc: Prescription, ignored_structures: List) -> None:
     # CHEQUEANDO CONSTRAINTS
+    # print(list(presc.structures.keys()))
+    # print(dvh_list_dummy[0].structures.keys())
     for p_name in list(presc.structures.keys()):
-        # print(f'{p_name} constraints:')
         for constraint in presc.structures[p_name]:
-            if p_name in ['PTV_BOOST_TOTAL']: 
-                continue  # PTV_BOOST_TOTAL no tiene constraints
-            constraint.verify(dvh_list_dummy[0].structures[p_name])
-
-            # if not constraint.ACCEPTABLE_LV_AVAILABLE:
-            #     if constraint.VERIFIED_IDEAL[0]:
-            #         print(colored(f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}",'green'))
-            #     else:
-            #         print(colored(f"    NO PASA: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}",'red'))
-            # else:
-            #     if constraint.VERIFIED_IDEAL[0]:
-            #         print(colored(f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}",'green'))
-            #     elif constraint.VERIFIED_ACCEPTABLE[0]:
-            #         print(colored(f"    PASA ACEPTABLE: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}",'yellow'))
-            #     else:
-            #         print(colored(f"    NO PASA: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}",'red'))
+            if p_name not in ignored_structures:
+                constraint.verify(dvh_list_dummy[0].structures[p_name])
+            else:
+                print(f"Estructura {p_name} no marcada para verificación de constraints.")

@@ -1,10 +1,13 @@
-from backend import DVH, Prescription, dose_police_in_action, request_needed_volume, actualizar_dvh_con_mapeos
+from tkinter import messagebox
+from backend import DVH, Prescription, dose_police_in_action, actualizar_dvh_con_mapeos
 import xlstools
 import warnings
 import customtkinter as ctk
 import json
 import os
 import sys
+import re
+import warnings
 
 # extra imports para PDF
 from reportlab.lib.pagesizes import letter
@@ -29,6 +32,7 @@ def resource_path(relative_path):
 NAS_directory = resource_path("//FS-201-Radioterapia.intecnus.org.ar/")
 constraint_excel_file_path = resource_path(NAS_directory + "fisicos/8 - Físicos Médicos/Natalia Espector/2024 - Protocolos clínicos/Protocolo de constraints.xlsx")
 dvh_folder_path = resource_path(NAS_directory + "monaco/FocalData/DVH Output/")
+results_folder_path = resource_path(NAS_directory + "fisicos/2 - Pacientes/0 - REPORTES/REPORTES DVH/")
 
 
 class FileSelectorApp(ctk.CTkToplevel):
@@ -98,7 +102,7 @@ class EstructurasApp(ctk.CTkToplevel):
     def __init__(self, master, dic_a, dic_b, subset_keys_a):
         super().__init__(master)
         self.title("Mapeo de estructuras")
-        self.geometry("850x800")
+        self.geometry("900x800")
 
         self.dic_a = dic_a
         self.dic_b = dic_b
@@ -106,9 +110,11 @@ class EstructurasApp(ctk.CTkToplevel):
 
         self.mappings = {}
         self.float_inputs = {}
+        self.ignore_vars = {}
 
         self.mapping_result = None
         self.float_result = None
+        self.ignored_result = None
 
         self.create_widgets()
 
@@ -116,25 +122,31 @@ class EstructurasApp(ctk.CTkToplevel):
         title = ctk.CTkLabel(self, text="Mapeo de estructuras:", font=("Arial", 18))
         title.pack(pady=10)
 
-        frame = ctk.CTkScrollableFrame(self, width=800, height=600)
+        frame = ctk.CTkScrollableFrame(self, width=850, height=600)
         frame.pack(pady=(10, 5), padx=10, fill="x")
 
+        # Cabeceras
         ctk.CTkLabel(frame, text="Prescripción").grid(row=0, column=0, padx=10, pady=5)
         ctk.CTkLabel(frame, text="DVH").grid(row=0, column=1, padx=10, pady=5)
+        ctk.CTkLabel(frame, text="Incluir").grid(row=0, column=2, padx=10, pady=5)
 
         for i, key_a in enumerate(self.dic_a.keys()):
+            # Etiqueta con el nombre de estructura
             ctk.CTkLabel(frame, text=key_a).grid(row=i + 1, column=0, padx=10, pady=5, sticky="w")
 
+            # Menú de opciones para mapear
             values = ['-'] if key_a in self.dic_b else list(self.dic_b.keys())
             default_value = values[0]
-
             option_menu = ctk.CTkOptionMenu(frame, values=values)
             option_menu.set(default_value)
             option_menu.grid(row=i + 1, column=1, padx=10, pady=5, sticky="w")
             self.mappings[key_a] = option_menu
 
-            entry = ctk.CTkEntry(frame, width=100, placeholder_text="Valor")
-            self.float_inputs[key_a] = entry
+            # Checkbox para ignorar o incluir
+            var = ctk.BooleanVar(value=True)  # activado por defecto
+            checkbox = ctk.CTkCheckBox(frame, text="", variable=var)
+            checkbox.grid(row=i + 1, column=2, padx=10, pady=5)
+            self.ignore_vars[key_a] = var
 
         boton = ctk.CTkButton(self, text="Confirmar", command=self.actualizar)
         boton.pack(pady=(10, 20))
@@ -151,6 +163,9 @@ class EstructurasApp(ctk.CTkToplevel):
                 except ValueError:
                     self.float_result[k] = None
 
+        # Lista de estructuras a ignorar (checkbox sin marcar)
+        self.ignored_result = [k for k, var in self.ignore_vars.items() if not var.get()]
+
         self.destroy()
 
     @staticmethod
@@ -158,11 +173,11 @@ class EstructurasApp(ctk.CTkToplevel):
         app = EstructurasApp(master, dic_a, dic_b, subset_keys_a)
         app.grab_set()
         app.wait_window()
-        return app.mapping_result, app.float_result
+        return app.mapping_result, app.float_result, app.ignored_result
 
 
 class ResultsWindow(ctk.CTkToplevel):
-    def __init__(self, master, presc, dvh):
+    def __init__(self, master, presc, dvh, ignored_structures):
         super().__init__(master)
 
         self.new_dvh_requested = False
@@ -174,35 +189,60 @@ class ResultsWindow(ctk.CTkToplevel):
         self.textbox = ctk.CTkTextbox(self, wrap="word")
         self.textbox.pack(expand=True, fill="both", padx=20, pady=20)
 
+        # Configuración de estilos
         self.textbox.tag_config("green", foreground="green")
         self.textbox.tag_config("yellow", foreground="orange")
         self.textbox.tag_config("red", foreground="red")
 
+        flecha = "➜"  # flecha más grande y elegante
+
         for p_name in presc.structures:
+            if p_name in ignored_structures: 
+                continue
             self.textbox.insert("end", f'{p_name} constraints:\n', ("title",))
             for constraint in presc.structures[p_name]:
-                if p_name in ['PTV_BOOST_TOTAL']:
-                    continue
                 if not constraint.ACCEPTABLE_LV_AVAILABLE:
                     if constraint.VERIFIED_IDEAL[0]:
-                        mensaje = f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
+                        mensaje = (
+                            f"    PASA IDEAL: {constraint.type}: "
+                            f"{constraint.ideal_dose} {constraint.ideal_volume}  {flecha}  "
+                            f"{constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n\n"
+                        )
                         self.textbox.insert("end", mensaje, ("green",))
                     else:
-                        mensaje = f"    NO PASA: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
+                        mensaje = (
+                            f"    NO PASA: {constraint.type}: "
+                            f"{constraint.ideal_dose} {constraint.ideal_volume}  {flecha}  "
+                            f"{constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n\n"
+                        )
                         self.textbox.insert("end", mensaje, ("red",))
                 else:
                     if constraint.VERIFIED_IDEAL[0]:
-                        mensaje = f"    PASA IDEAL: {constraint.type}: {constraint.ideal_dose} {constraint.ideal_volume} -> {constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n"
+                        mensaje = (
+                            f"    PASA IDEAL: {constraint.type}: "
+                            f"{constraint.ideal_dose} {constraint.ideal_volume}  {flecha}  "
+                            f"{constraint.ideal_dose} {constraint.VERIFIED_IDEAL[1]}\n\n"
+                        )
                         self.textbox.insert("end", mensaje, ("green",))
                     elif constraint.VERIFIED_ACCEPTABLE[0]:
-                        mensaje = f"    PASA ACEPTABLE: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n"
+                        mensaje = (
+                            f"    PASA ACEPTABLE: {constraint.type}: "
+                            f"{constraint.acceptable_dose} {constraint.acceptable_volume}  {flecha}  "
+                            f"{constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n\n"
+                        )
                         self.textbox.insert("end", mensaje, ("yellow",))
                     else:
-                        mensaje = f"    NO PASA: {constraint.type}: {constraint.acceptable_dose} {constraint.acceptable_volume} -> {constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n"
+                        mensaje = (
+                            f"    NO PASA: {constraint.type}: "
+                            f"{constraint.acceptable_dose} {constraint.acceptable_volume}  {flecha}  "
+                            f"{constraint.acceptable_dose} {constraint.VERIFIED_ACCEPTABLE[1]}\n\n"
+                        )
                         self.textbox.insert("end", mensaje, ("red",))
 
         self.textbox.configure(state="disabled")
+        self.textbox.configure(font=("Arial", 16))
 
+        # --- BOTONES ---
         button_frame = ctk.CTkFrame(self)
         button_frame.pack(pady=10)
 
@@ -223,13 +263,17 @@ class ResultsWindow(ctk.CTkToplevel):
         self.destroy()
 
     def save_as_pdf(self):
-        default_name = f"Resultados_{self.dvh.plan_name}_{self.dvh.patient_id}.pdf"
+        default_name = f"Resultados_{self.dvh.patient_id}_{self.dvh.plan_name}.pdf"
+        initial_dir = results_folder_path
+
         file_path = ctkfiledialog.asksaveasfilename(
+            initialdir=initial_dir,
             initialfile=default_name,
             defaultextension=".pdf",
             filetypes=[("PDF files", "*.pdf")],
             title="Guardar resultados como PDF"
         )
+
         if not file_path:
             return
 
@@ -241,15 +285,15 @@ class ResultsWindow(ctk.CTkToplevel):
 
         # --- LOGO INTECNUS ---
         try:
-            logo_path = resource_path("logo_intecnus.png")
-            c.drawImage(logo_path, 40, height - 100, width=120, preserveAspectRatio=True, mask='auto')
+            logo_path = resource_path("images\logo_intecnus.png")
+            c.drawImage(logo_path, 40, height - 130, width=120, preserveAspectRatio=True, mask='auto')
         except Exception as e:
             print("No se pudo cargar el logo:", e)
 
         # --- ENCABEZADO ---
         y = height - 50
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(180, y, "Resultados de Constraints")  # desplazado para no tapar logo
+        c.drawString(180, y, "Resultados de Constraints")
         y -= 25
         c.setFont("Helvetica", 12)
         c.drawString(180, y, f"Plan: {self.dvh.plan_name}")
@@ -276,13 +320,14 @@ class ResultsWindow(ctk.CTkToplevel):
 
             c.setFillColor(color)
             c.drawString(40, y, line)
-            y -= 14
+            y -= 14  # interlineado más grande
             if y < 40:
                 c.showPage()
                 y = height - 50
                 c.setFont("Helvetica", 10)
 
         c.save()
+
 
 
 
@@ -312,7 +357,11 @@ def load_mapping_and_volumes_if_exists(dvh):
 
 def main():
     carpeta_predeterminada = dvh_folder_path
-    lista_opciones = xlstools.get_cell_content(file_path=constraint_excel_file_path, cell_coordinate='B2', sheet_name=None)[3:]
+    lista_opciones = xlstools.get_cell_content(
+        file_path=constraint_excel_file_path,
+        cell_coordinate='B2',
+        sheet_name=None
+    )[3:]
 
     root = ctk.CTk()
     root.withdraw()
@@ -326,25 +375,68 @@ def main():
             break
 
         dvh = DVH(selector.selected_file)
+
+        # 🔹 Verificación de unidades
+        # --- 🔹 Leer primera línea del archivo DVH ---
+        try:
+            with open(selector.selected_file, 'r', encoding='utf-8', errors='ignore') as f:
+                first_line = f.readline().strip()
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo leer el archivo DVH:\n{e}")
+            continue
+
+        # --- 🔹 Extraer unidades con expresiones regulares ---
+        dose_match = re.search(r"Dose Units:\s*([A-Za-z]+)", first_line)
+        volume_match = re.search(r"Volume Units:\s*([A-Za-z³]+)", first_line)
+
+        dose_units = dose_match.group(1).lower() if dose_match else ""
+        volume_units = volume_match.group(1).lower() if volume_match else ""
+
+        # --- 🔹 Verificación de unidades ---
+        if "cgy" not in dose_units:
+            messagebox.showwarning(
+                "Dosis relativa detectada",
+                "El DVH seleccionado no está en dosis absoluta (cGy).\n"
+                "Por favor, exporte o seleccione un DVH en dosis absoluta."
+            )
+            continue  # volver a seleccionar
+
+        if not any(u in volume_units for u in ["cm", "cc"]):
+            messagebox.showwarning(
+                "Volumen relativo detectado",
+                "El DVH seleccionado no está en volumen absoluto (cc o cm³).\n"
+                "Por favor, exporte o seleccione un DVH en volumen absoluto."
+            )
+            continue  # volver a seleccionar
+
+
         presc = Prescription(constraint_excel_file_path, selector.selected_string)
 
-        name_mapping, volume_mapping = load_mapping_and_volumes_if_exists(dvh)
+        # name_mapping, volume_mapping = load_mapping_and_volumes_if_exists(dvh)
+        ignored_structures = [] 
 
-        if name_mapping is None or volume_mapping is None:
-            volumen_requested_list = request_needed_volume(dvh, presc)
-            name_mapping, volume_mapping = EstructurasApp.run(root, presc.structures, dvh.structures, volumen_requested_list)
-            save_mapping_and_volumes(dvh, name_mapping, volume_mapping)
+        volumen_requested_list = []
+        name_mapping, volume_mapping, ignored_structures = EstructurasApp.run(
+            root, presc.structures, dvh.structures, volumen_requested_list
+        )
 
-        actualizar_dvh_con_mapeos(dvh, name_mapping, volume_mapping)
+        # Invertir mapping: {nombre_dvh: nombre_presc}
+        mapping_invertido = {v: k for k, v in name_mapping.items() if v and v != "-"}
 
-        dose_police_in_action([dvh], presc)
+        actualizar_dvh_con_mapeos(dvh, mapping_invertido, volume_mapping)
 
-        ventana_resultado = ResultsWindow(root, presc, dvh)
+        # Pasar estructuras ignoradas a dose_police_in_action
+        dose_police_in_action([dvh], presc, ignored_structures)
+
+        ventana_resultado = ResultsWindow(root, presc, dvh, ignored_structures)
         ventana_resultado.grab_set()
         ventana_resultado.wait_window()
 
         if not ventana_resultado.new_dvh_requested:
             break
+
+
+
 
 
 if __name__ == "__main__":
