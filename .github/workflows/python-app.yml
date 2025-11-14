@@ -1,7 +1,7 @@
 # This workflow will install Python dependencies, run tests and lint with a single version of Python
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
-name: Build Monaco Bot EXE
+name: Build Dose Police EXE
 
 on:
   push:
@@ -10,32 +10,41 @@ on:
 
 jobs:
   build:
+    runs-on: windows-2022
+
     strategy:
       matrix:
-        os: [windows-2022]
         python-version: ['3.11']
-    
-    runs-on: ${{ matrix.os }}
-    
+
     steps:
-    - uses: actions/checkout@v4
-      
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller opencv-python-headless numpy Pillow pywinauto
-        
-    - name: Build with PyInstaller
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build EXE with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --icon=icon.ico --add-data "images;images" monaco_bot_debug3.py --name Monaco_Bot
-        
-    - name: Upload artifact
+        pyinstaller ^
+          --onefile ^
+          --windowed ^
+          --icon=logo.ico ^
+          --add-data "images;images" ^
+          --add-data "fonts;fonts" ^
+          Dose_Police.py ^
+          --name Dose_Police
+
+    - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Dose_Police_${{ matrix.os }}_Python${{ matrix.python-version }}
+        name: Dose_Police_Windows_Python${{ matrix.python-version }}
         path: dist/Dose_Police.exe
+
